@@ -256,6 +256,7 @@ struct pcm {
     void *mmap_buffer;
     unsigned int noirq_frames_per_msec;
     int wait_for_avail_min;
+    unsigned int subdevice;
 };
 
 unsigned int pcm_get_buffer_size(struct pcm *pcm)
@@ -268,6 +269,11 @@ const char* pcm_get_error(struct pcm *pcm)
     return pcm->error;
 }
 
+unsigned int pcm_get_subdevice(struct pcm *pcm)
+{
+    return pcm->subdevice;
+}
+
 static int oops(struct pcm *pcm, int e, const char *fmt, ...)
 {
     va_list ap;
@@ -278,7 +284,7 @@ static int oops(struct pcm *pcm, int e, const char *fmt, ...)
     va_end(ap);
     sz = strlen(pcm->error);
 
-    if (errno)
+    if (e)
         snprintf(pcm->error + sz, PCM_ERROR_MAX - sz,
                  ": %s", strerror(e));
     return -1;
@@ -430,7 +436,7 @@ static int pcm_mmap_transfer_areas(struct pcm *pcm, char *buf,
         pcm_areas_copy(pcm, pcm_offset, buf, offset, frames);
         commit = pcm_mmap_commit(pcm, pcm_offset, frames);
         if (commit < 0) {
-            oops(pcm, commit, "failed to commit %d frames\n", frames);
+            oops(pcm, errno, "failed to commit %d frames\n", frames);
             return commit;
         }
 
@@ -475,6 +481,34 @@ int pcm_get_htimestamp(struct pcm *pcm, unsigned int *avail,
         frames -= pcm->boundary;
 
     *avail = (unsigned int)frames;
+
+    return 0;
+}
+
+int pcm_mmap_get_hw_ptr(struct pcm* pcm, unsigned int *hw_ptr, struct timespec *tstamp)
+{
+    int frames;
+    int rc;
+
+    if (pcm == NULL || hw_ptr == NULL || tstamp == NULL)
+        return oops(pcm, EINVAL, "pcm %p, hw_ptr %p, tstamp %p", pcm, hw_ptr, tstamp);
+
+    if (!pcm_is_ready(pcm))
+        return oops(pcm, errno, "pcm_is_ready failed");
+
+    rc = pcm_sync_ptr(pcm, SNDRV_PCM_SYNC_PTR_HWSYNC);
+    if (rc < 0)
+        return oops(pcm, errno, "pcm_sync_ptr failed");
+
+    if ((pcm->mmap_status->state != PCM_STATE_RUNNING) &&
+            (pcm->mmap_status->state != PCM_STATE_DRAINING))
+        return oops(pcm, ENOSYS, "invalid stream state %d", pcm->mmap_status->state);
+
+    *tstamp = pcm->mmap_status->tstamp;
+    if (tstamp->tv_sec == 0 && tstamp->tv_nsec == 0)
+        return oops(pcm, errno, "invalid time stamp");
+
+    *hw_ptr = pcm->mmap_status->hw_ptr;
 
     return 0;
 }
@@ -871,6 +905,7 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
         oops(pcm, errno, "cannot get info");
         goto fail_close;
     }
+    pcm->subdevice = info.subdevice;
 
     param_init(&params);
     param_set_mask(&params, SNDRV_PCM_HW_PARAM_FORMAT,
@@ -889,7 +924,7 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
 
     if (flags & PCM_NOIRQ) {
         if (!(flags & PCM_MMAP)) {
-            oops(pcm, -EINVAL, "noirq only currently supported with mmap().");
+            oops(pcm, EINVAL, "noirq only currently supported with mmap().");
             goto fail_close;
         }
 
@@ -918,7 +953,7 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
         pcm->mmap_buffer = mmap(NULL, pcm_frames_to_bytes(pcm, pcm->buffer_size),
                                 PROT_READ | PROT_WRITE, MAP_FILE | MAP_SHARED, pcm->fd, 0);
         if (pcm->mmap_buffer == MAP_FAILED) {
-            oops(pcm, -errno, "failed to mmap buffer %d bytes\n",
+            oops(pcm, errno, "failed to mmap buffer %d bytes\n",
                  pcm_frames_to_bytes(pcm, pcm->buffer_size));
             goto fail_close;
         }
@@ -972,7 +1007,7 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
 
     rc = pcm_hw_mmap_status(pcm);
     if (rc < 0) {
-        oops(pcm, rc, "mmap status failed");
+        oops(pcm, errno, "mmap status failed");
         goto fail;
     }
 
@@ -981,7 +1016,7 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
         int arg = SNDRV_PCM_TSTAMP_TYPE_MONOTONIC;
         rc = ioctl(pcm->fd, SNDRV_PCM_IOCTL_TTSTAMP, &arg);
         if (rc < 0) {
-            oops(pcm, rc, "cannot set timestamp type");
+            oops(pcm, errno, "cannot set timestamp type");
             goto fail;
         }
     }
@@ -1243,7 +1278,7 @@ int pcm_mmap_transfer(struct pcm *pcm, const void *buffer, unsigned int bytes)
                 if (err < 0) {
                     pcm->prepared = 0;
                     pcm->running = 0;
-                    oops(pcm, err, "wait error: hw 0x%x app 0x%x avail 0x%x\n",
+                    oops(pcm, errno, "wait error: hw 0x%x app 0x%x avail 0x%x\n",
                         (unsigned int)pcm->mmap_status->hw_ptr,
                         (unsigned int)pcm->mmap_control->appl_ptr,
                         avail);
