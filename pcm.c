@@ -477,7 +477,7 @@ int pcm_get_htimestamp(struct pcm *pcm, unsigned int *avail,
 
     if (frames < 0)
         frames += pcm->boundary;
-    else if (frames > (int)pcm->boundary)
+    else if (frames >= (int)pcm->boundary)
         frames -= pcm->boundary;
 
     *avail = (unsigned int)frames;
@@ -1088,7 +1088,7 @@ static inline int pcm_mmap_playback_avail(struct pcm *pcm)
 
     if (avail < 0)
         avail += pcm->boundary;
-    else if (avail > (int)pcm->boundary)
+    else if (avail >= (int)pcm->boundary)
         avail -= pcm->boundary;
 
     return avail;
