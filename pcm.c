@@ -57,6 +57,10 @@ enum {
 };
 
 #define PARAM_MAX SNDRV_PCM_HW_PARAM_LAST_INTERVAL
+// This is from bionic/libc/kernel/uapi/sound/asound.h
+// But compiler uses this file firstly:
+// prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.15-4.8/sysroot/usr/include/sound/asound.h
+#define SNDRV_PCM_FORMAT_DSD_U32_LE ((__force snd_pcm_format_t)50)
 
 /* Logs information into a string; follows snprintf() in that
  * offset may be greater than size, and though no characters are copied
@@ -945,6 +949,9 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
     param_init(&params);
     param_set_mask(&params, SNDRV_PCM_HW_PARAM_FORMAT,
                    pcm_format_to_alsa(config->format));
+    if (pcm->flags & PCM_FLAG_DSD) {
+        param_set_mask(&params, SNDRV_PCM_HW_PARAM_FORMAT, SNDRV_PCM_FORMAT_DSD_U32_LE);
+    }
     param_set_mask(&params, SNDRV_PCM_HW_PARAM_SUBFORMAT,
                    SNDRV_PCM_SUBFORMAT_STD);
     param_set_min(&params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, config->period_size);
