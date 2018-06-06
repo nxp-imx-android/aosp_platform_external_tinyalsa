@@ -49,6 +49,9 @@
 #include <tinyalsa/asoundlib.h>
 
 #define PARAM_MAX SNDRV_PCM_HW_PARAM_LAST_INTERVAL
+// This is from bionic/libc/kernel/uapi/sound/asound.h
+// But compiler uses this file firstly: prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.15-4.8/sysroot/usr/include/sound/asound.h
+#define SNDRV_PCM_FORMAT_DSD_U32_LE ((__force snd_pcm_format_t) 50)
 
 /* Logs information into a string; follows snprintf() in that
  * offset may be greater than size, and though no characters are copied
@@ -293,6 +296,8 @@ static int oops(struct pcm *pcm, int e, const char *fmt, ...)
 static unsigned int pcm_format_to_alsa(enum pcm_format format)
 {
     switch (format) {
+    case PCM_FORMAT_DSD:
+        return SNDRV_PCM_FORMAT_DSD_U32_LE;
     case PCM_FORMAT_S32_LE:
         return SNDRV_PCM_FORMAT_S32_LE;
     case PCM_FORMAT_S8:
@@ -310,6 +315,7 @@ static unsigned int pcm_format_to_alsa(enum pcm_format format)
 unsigned int pcm_format_to_bits(enum pcm_format format)
 {
     switch (format) {
+    case PCM_FORMAT_DSD:
     case PCM_FORMAT_S32_LE:
     case PCM_FORMAT_S24_LE:
         return 32;
