@@ -79,6 +79,7 @@ enum pcm_format {
     PCM_FORMAT_S8,          /* 8-bit signed */
     PCM_FORMAT_S24_LE,      /* 24-bits in 4-bytes */
     PCM_FORMAT_S24_3LE,     /* 24-bits in 3-bytes */
+    PCM_FORMAT_DSD,         /* 32-bits in 4-bytes */
 
     PCM_FORMAT_MAX,
 };
