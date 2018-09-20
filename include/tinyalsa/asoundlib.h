@@ -56,6 +56,7 @@ struct pcm;
                                    * restart the stream.
                                    */
 #define PCM_MONOTONIC  0x00000008 /* see pcm_get_htimestamp */
+#define PCM_LPA        0x00001000 /* PCM_LPA - open NONBLOCK pcm */
 
 /* PCM runtime states */
 #define	PCM_STATE_OPEN		0
