@@ -45,6 +45,7 @@
 #define __bitwise
 #define __user
 #include <sound/asound.h>
+#include <sys/times.h>
 
 #include <tinyalsa/asoundlib.h>
 
@@ -544,6 +545,11 @@ int pcm_write(struct pcm *pcm, const void *data, unsigned int count)
             return 0;
         }
         if (ioctl(pcm->fd, SNDRV_PCM_IOCTL_WRITEI_FRAMES, &x)) {
+            if (errno == EAGAIN && (pcm->flags & PCM_LPA)) {
+                useconds_t us = (useconds_t)((unsigned long long)x.frames * 1000000 / pcm->config.rate);
+                usleep(us);
+                continue;
+            }
             pcm->prepared = 0;
             pcm->running = 0;
             if (errno == EPIPE) {
@@ -907,10 +913,12 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
         return pcm;
     }
 
-    if (fcntl(pcm->fd, F_SETFL, fcntl(pcm->fd, F_GETFL) &
-              ~O_NONBLOCK) < 0) {
-        oops(pcm, errno, "failed to reset blocking mode '%s'", fn);
-        goto fail_close;
+    if ((pcm->flags & PCM_LPA) == 0) {
+        if (fcntl(pcm->fd, F_SETFL, fcntl(pcm->fd, F_GETFL) &
+                  ~O_NONBLOCK) < 0) {
+            oops(pcm, errno, "failed to reset blocking mode '%s'", fn);
+            goto fail_close;
+        }
     }
 
     if (ioctl(pcm->fd, SNDRV_PCM_IOCTL_INFO, &info)) {
