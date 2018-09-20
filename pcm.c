@@ -550,18 +550,35 @@ int pcm_write(struct pcm *pcm, const void *data, unsigned int count)
                 usleep(us);
                 continue;
             }
-            pcm->prepared = 0;
-            pcm->running = 0;
-            if (errno == EPIPE) {
-                /* we failed to make our window -- try to restart if we are
-                 * allowed to do so.  Otherwise, simply allow the EPIPE error to
-                 * propagate up to the app level */
-                pcm->underruns++;
-                if (pcm->flags & PCM_NORESTART)
-                    return -EPIPE;
-                continue;
+            // If pcm state is SUSPENDED, resume it. ESTRPIPE = 86.
+            if (errno == ESTRPIPE && (pcm->flags & PCM_LPA)) {
+                if (ioctl(pcm->fd, SNDRV_PCM_IOCTL_RESUME) < 0) {
+                    return -errno;
+                }
+                if (ioctl(pcm->fd, SNDRV_PCM_IOCTL_WRITEI_FRAMES, &x)) {
+                    if (errno == EAGAIN) {
+                        useconds_t us = (useconds_t)((unsigned long long)x.frames * 1000000 / pcm->config.rate);
+                        usleep(us);
+                        continue;
+                    }
+                    return -errno;
+                }
+                return 0;
             }
-            return oops(pcm, errno, "cannot write stream data");
+            if ((pcm->flags & PCM_LPA) == 0) {
+                pcm->prepared = 0;
+                pcm->running = 0;
+                if (errno == EPIPE) {
+                    /* we failed to make our window -- try to restart if we are
+                     * allowed to do so.  Otherwise, simply allow the EPIPE error to
+                     * propagate up to the app level */
+                    pcm->underruns++;
+                    if (pcm->flags & PCM_NORESTART)
+                        return -EPIPE;
+                    continue;
+                }
+                return oops(pcm, errno, "cannot write stream data");
+            }
         }
         return 0;
     }
