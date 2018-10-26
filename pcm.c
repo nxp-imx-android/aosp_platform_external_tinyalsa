@@ -548,7 +548,7 @@ int pcm_write(struct pcm *pcm, const void *data, unsigned int count)
                 continue;
             }
             // If pcm state is SUSPENDED, resume it. ESTRPIPE = 86.
-            if (errno == ESTRPIPE && (pcm->flags & PCM_LPA)) {
+            if ((errno == ESTRPIPE || errno == EPIPE) && (pcm->flags & PCM_LPA)) {
                 if (ioctl(pcm->fd, SNDRV_PCM_IOCTL_RESUME) < 0) {
                     return -errno;
                 }
