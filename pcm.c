@@ -297,8 +297,6 @@ static int oops(struct pcm *pcm, int e, const char *fmt, ...)
 static unsigned int pcm_format_to_alsa(enum pcm_format format)
 {
     switch (format) {
-    case PCM_FORMAT_DSD:
-        return SNDRV_PCM_FORMAT_DSD_U32_LE;
     case PCM_FORMAT_S32_LE:
         return SNDRV_PCM_FORMAT_S32_LE;
     case PCM_FORMAT_S8:
@@ -316,7 +314,6 @@ static unsigned int pcm_format_to_alsa(enum pcm_format format)
 unsigned int pcm_format_to_bits(enum pcm_format format)
 {
     switch (format) {
-    case PCM_FORMAT_DSD:
     case PCM_FORMAT_S32_LE:
     case PCM_FORMAT_S24_LE:
         return 32;
@@ -947,6 +944,10 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
     param_init(&params);
     param_set_mask(&params, SNDRV_PCM_HW_PARAM_FORMAT,
                    pcm_format_to_alsa(config->format));
+    if (pcm->flags & PCM_FLAG_DSD) {
+        param_set_mask(&params, SNDRV_PCM_HW_PARAM_FORMAT,
+                       SNDRV_PCM_FORMAT_DSD_U32_LE);
+    }
     param_set_mask(&params, SNDRV_PCM_HW_PARAM_SUBFORMAT,
                    SNDRV_PCM_SUBFORMAT_STD);
     param_set_min(&params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, config->period_size);
