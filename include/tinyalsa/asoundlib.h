@@ -57,6 +57,7 @@ struct pcm;
                                    */
 #define PCM_MONOTONIC  0x00000008 /* see pcm_get_htimestamp */
 #define PCM_LPA        0x00001000 /* PCM_LPA - open NONBLOCK pcm */
+#define PCM_FLAG_DSD   0x00002000 /* PCM_FLAG_DSD - use SNDRV_PCM_FORMAT_DSD_U32_LE format to open pcm */
 
 /* PCM runtime states */
 #define	PCM_STATE_OPEN		0
@@ -80,7 +81,6 @@ enum pcm_format {
     PCM_FORMAT_S8,          /* 8-bit signed */
     PCM_FORMAT_S24_LE,      /* 24-bits in 4-bytes */
     PCM_FORMAT_S24_3LE,     /* 24-bits in 3-bytes */
-    PCM_FORMAT_DSD,         /* 32-bits in 4-bytes */
 
     PCM_FORMAT_MAX,
 };
