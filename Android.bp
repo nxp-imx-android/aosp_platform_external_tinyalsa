@@ -8,6 +8,8 @@ cc_library {
     },
     srcs: [
         "mixer.c",
+        "mixer_hw.c",
+        "mixer_plugin.c",
         "pcm.c",
         "pcm_hw.c",
         "pcm_plugin.c",
