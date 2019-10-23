@@ -38,6 +38,7 @@
 #include <poll.h>
 
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <linux/ioctl.h>
 #include <sound/asound.h>
 #include <tinyalsa/asoundlib.h>
@@ -72,6 +73,25 @@ static int pcm_hw_ioctl(void *data, unsigned int cmd, ...)
     va_end(ap);
 
     return ioctl(hw_data->fd, cmd, arg);
+}
+
+static int pcm_hw_poll(void *data __attribute__((unused)),
+        struct pollfd *pfd, nfds_t nfds, int timeout)
+{
+    return poll(pfd, nfds, timeout);
+}
+
+static void* pcm_hw_mmap(void *data, void *addr, size_t length, int prot,
+                       int flags, off_t offset)
+{
+    struct pcm_hw_data *hw_data = data;
+
+   return mmap(addr, length, prot, flags, hw_data->fd, offset);
+}
+
+static int pcm_hw_munmap(void *data __attribute__((unused)), void *addr, size_t length)
+{
+    return munmap(addr, length);
 }
 
 static int pcm_hw_open(unsigned int card, unsigned int device,
@@ -120,4 +140,7 @@ struct pcm_ops hw_ops = {
     .open = pcm_hw_open,
     .close = pcm_hw_close,
     .ioctl = pcm_hw_ioctl,
+    .mmap = pcm_hw_mmap,
+    .munmap = pcm_hw_munmap,
+    .poll = pcm_hw_poll,
 };
