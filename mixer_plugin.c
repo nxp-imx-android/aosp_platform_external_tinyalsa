@@ -1,6 +1,6 @@
 /* mixer_plugin.c
 **
-** Copyright (c) 2019, The Linux Foundation. All rights reserved.
+** Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted provided that the following conditions are
@@ -40,7 +40,6 @@
 #include <ctype.h>
 #include <poll.h>
 #include <dlfcn.h>
-#include <string.h>
 #include <sys/eventfd.h>
 #include <sys/ioctl.h>
 
@@ -325,11 +324,11 @@ static int mixer_plug_get_card_info(struct mixer_plug_data *plug_data,
     /*TODO: Fill card_info here from snd-card-def */
     memset(card_info, 0, sizeof(*card_info));
     card_info->card = plug_data->card;
-    memcpy(card_info->id, "card_id", sizeof(card_info->id));
-    memcpy(card_info->driver, "mymixer-so-name", sizeof(card_info->driver));
-    memcpy(card_info->name, "card-name", sizeof(card_info->name));
-    memcpy(card_info->longname, "card-name", sizeof(card_info->longname));
-    memcpy(card_info->mixername, "mixer-name", sizeof(card_info->mixername));
+    memcpy(card_info->id, "card_id", strlen("card_id") + 1);
+    memcpy(card_info->driver, "mymixer-so-name", strlen("mymixer-so-name") + 1);
+    memcpy(card_info->name, "card-name", strlen("card-name") + 1);
+    memcpy(card_info->longname, "card-name", strlen("card-name") + 1);
+    memcpy(card_info->mixername, "mixer-name", strlen("mixer-name") + 1);
 
     printf("%s: card = %d\n", __func__, plug_data->card);
 
@@ -409,10 +408,9 @@ int mixer_plugin_open(unsigned int card, void **data,
 {
     struct mixer_plug_data *plug_data;
     struct mixer_plugin *plugin = NULL;
-    const char *err = NULL;
     void *dl_hdl;
     char *name, *so_name;
-    char *open_fn_name, token[80];
+    char *open_fn_name, token[80], *token_saveptr;
     int ret;
 
     plug_data = calloc(1, sizeof(*plug_data));
@@ -425,7 +423,7 @@ int mixer_plugin_open(unsigned int card, void **data,
         /* Do not print error here.
          * It is valid for card to not have virtual mixer node
          */
-        goto err_get_mixer_node;
+        goto err_free_plug_data;
     }
 
     ret = snd_utils_get_str(plug_data->mixer_node, "so-name",
@@ -433,7 +431,7 @@ int mixer_plugin_open(unsigned int card, void **data,
     if(ret) {
         fprintf(stderr, "%s: mixer so-name not found for card %u\n",
                 __func__, card);
-        goto err_get_mixer_node;
+        goto err_put_dev_node;
 
     }
 
@@ -441,16 +439,21 @@ int mixer_plugin_open(unsigned int card, void **data,
     if (!dl_hdl) {
         fprintf(stderr, "%s: unable to open %s\n",
                 __func__, so_name);
-        goto err_get_mixer_node;
+        goto err_put_dev_node;
     }
 
     sscanf(so_name, "lib%s", token);
-    name = strtok(token, ".");
+    token_saveptr = token;
+    name = strtok_r(token, ".", &token_saveptr);
+    if (!name) {
+        fprintf(stderr, "%s: invalid library name\n", __func__);
+        goto err_dl_hdl;
+    }
 
     open_fn_name = calloc(1, strlen(name) + strlen("_open") + 1);
     if (!open_fn_name) {
         ret = -ENOMEM;
-        goto err_get_mixer_node;
+        goto err_dl_hdl;
     }
 
     strncpy(open_fn_name, name, strlen(name) + 1);
@@ -458,18 +461,17 @@ int mixer_plugin_open(unsigned int card, void **data,
 
     printf("%s - %s\n", __func__, open_fn_name);
 
-    dlerror();
     plug_data->mixer_plugin_open_fn = dlsym(dl_hdl, open_fn_name);
-    if (err) {
+    if (!plug_data->mixer_plugin_open_fn) {
         fprintf(stderr, "%s: dlsym open fn failed: %s\n",
-                __func__, err);
-        goto err_get_name;
+                __func__, dlerror());
+        goto err_open_fn_name;
     }
     ret = plug_data->mixer_plugin_open_fn(&plugin, card);
     if (ret) {
         fprintf(stderr, "%s: failed to open plugin, err: %d\n",
                 __func__, ret);
-        goto err_get_name;
+        goto err_open_fn_name;
     }
 
     plug_data->plugin = plugin;
@@ -482,13 +484,19 @@ int mixer_plugin_open(unsigned int card, void **data,
 
     printf("%s: card = %d\n", __func__, plug_data->card);
 
+    free(open_fn_name);
     return 0;
 
-err_get_name:
-    snd_utils_put_dev_node(plug_data->mixer_node);
+err_open_fn_name:
+    free(open_fn_name);
+
+err_dl_hdl:
     dlclose(dl_hdl);
 
-err_get_mixer_node:
+err_put_dev_node:
+    snd_utils_put_dev_node(plug_data->mixer_node);
+
+err_free_plug_data:
 
     free(plug_data);
     return -1;
