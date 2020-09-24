@@ -688,7 +688,7 @@ static int pcm_param_to_alsa(enum pcm_param param)
     }
 }
 
-struct pcm_mask *pcm_params_get_mask(struct pcm_params *pcm_params,
+struct pcm_mask *pcm_params_get_mask(const struct pcm_params *pcm_params,
                                      enum pcm_param param)
 {
     int p;
@@ -705,7 +705,7 @@ struct pcm_mask *pcm_params_get_mask(struct pcm_params *pcm_params,
     return (struct pcm_mask *)param_to_mask(params, p);
 }
 
-unsigned int pcm_params_get_min(struct pcm_params *pcm_params,
+unsigned int pcm_params_get_min(const struct pcm_params *pcm_params,
                                 enum pcm_param param)
 {
     struct snd_pcm_hw_params *params = (struct snd_pcm_hw_params *)pcm_params;
@@ -737,7 +737,7 @@ void pcm_params_set_min(struct pcm_params *pcm_params,
     param_set_min(params, p, val);
 }
 
-unsigned int pcm_params_get_max(struct pcm_params *pcm_params,
+unsigned int pcm_params_get_max(const struct pcm_params *pcm_params,
                                 enum pcm_param param)
 {
     struct snd_pcm_hw_params *params = (struct snd_pcm_hw_params *)pcm_params;
