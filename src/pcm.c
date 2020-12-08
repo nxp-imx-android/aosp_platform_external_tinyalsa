@@ -1238,6 +1238,7 @@ static inline int pcm_mmap_capture_avail(struct pcm *pcm)
 
 int pcm_mmap_avail(struct pcm *pcm)
 {
+    pcm_sync_ptr(pcm, SNDRV_PCM_SYNC_PTR_HWSYNC);
     if (pcm->flags & PCM_IN)
         return pcm_mmap_capture_avail(pcm);
     else
