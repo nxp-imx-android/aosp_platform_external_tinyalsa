@@ -32,10 +32,7 @@
 #include <stdint.h>
 #include <signal.h>
 #include <string.h>
-#include <limits.h>
-
-#define OPTPARSE_IMPLEMENTATION
-#include "optparse.h"
+#include <time.h>
 
 #define ID_RIFF 0x46464952
 #define ID_WAVE 0x45564157
@@ -61,18 +58,15 @@ struct wav_header {
 };
 
 int capturing = 1;
-int prinfo = 1;
 
 unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
                             unsigned int channels, unsigned int rate,
                             enum pcm_format format, unsigned int period_size,
-                            unsigned int period_count, unsigned int capture_time);
+                            unsigned int period_count, unsigned int cap_time);
 
-void sigint_handler(int sig)
+void sigint_handler(int sig __unused)
 {
-    if (sig == SIGINT){
-        capturing = 0;
-    }
+    capturing = 0;
 }
 
 int main(int argc, char **argv)
@@ -82,67 +76,65 @@ int main(int argc, char **argv)
     unsigned int card = 0;
     unsigned int device = 0;
     unsigned int channels = 2;
-    unsigned int rate = 48000;
+    unsigned int rate = 44100;
     unsigned int bits = 16;
     unsigned int frames;
     unsigned int period_size = 1024;
     unsigned int period_count = 4;
-    unsigned int capture_time = UINT_MAX;
+    unsigned int cap_time = 0;
     enum pcm_format format;
-    int no_header = 0, c;
-    struct optparse opts;
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s {file.wav | --} [-D card] [-d device] [-c channels] "
-                "[-r rate] [-b bits] [-p period_size] [-n n_periods] [-t time_in_seconds]\n\n"
-                "Use -- for filename to send raw PCM to stdout\n", argv[0]);
+        fprintf(stderr, "Usage: %s file.wav [-D card] [-d device]"
+                " [-c channels] [-r rate] [-b bits] [-p period_size]"
+                " [-n n_periods] [-T capture time]\n", argv[0]);
         return 1;
     }
 
-    if (strcmp(argv[1],"--") == 0) {
-        file = stdout;
-        prinfo = 0;
-        no_header = 1;
-    } else {
-        file = fopen(argv[1], "wb");
-        if (!file) {
-            fprintf(stderr, "Unable to create file '%s'\n", argv[1]);
-            return 1;
-        }
+    file = fopen(argv[1], "wb");
+    if (!file) {
+        fprintf(stderr, "Unable to create file '%s'\n", argv[1]);
+        return 1;
     }
 
     /* parse command line arguments */
-    optparse_init(&opts, argv + 1);
-    while ((c = optparse(&opts, "D:d:c:r:b:p:n:t:")) != -1) {
-        switch (c) {
-        case 'd':
-            device = atoi(opts.optarg);
-            break;
-        case 'c':
-            channels = atoi(opts.optarg);
-            break;
-        case 'r':
-            rate = atoi(opts.optarg);
-            break;
-        case 'b':
-            bits = atoi(opts.optarg);
-            break;
-        case 'D':
-            card = atoi(opts.optarg);
-            break;
-        case 'p':
-            period_size = atoi(opts.optarg);
-            break;
-        case 'n':
-            period_count = atoi(opts.optarg);
-            break;
-        case 't':
-            capture_time = atoi(opts.optarg);
-            break;
-        case '?':
-            fprintf(stderr, "%s\n", opts.errmsg);
-            return EXIT_FAILURE;
+    argv += 2;
+    while (*argv) {
+        if (strcmp(*argv, "-d") == 0) {
+            argv++;
+            if (*argv)
+                device = atoi(*argv);
+        } else if (strcmp(*argv, "-c") == 0) {
+            argv++;
+            if (*argv)
+                channels = atoi(*argv);
+        } else if (strcmp(*argv, "-r") == 0) {
+            argv++;
+            if (*argv)
+                rate = atoi(*argv);
+        } else if (strcmp(*argv, "-b") == 0) {
+            argv++;
+            if (*argv)
+                bits = atoi(*argv);
+        } else if (strcmp(*argv, "-D") == 0) {
+            argv++;
+            if (*argv)
+                card = atoi(*argv);
+        } else if (strcmp(*argv, "-p") == 0) {
+            argv++;
+            if (*argv)
+                period_size = atoi(*argv);
+        } else if (strcmp(*argv, "-n") == 0) {
+            argv++;
+            if (*argv)
+                period_count = atoi(*argv);
+        } else if (strcmp(*argv, "-T") == 0) {
+            argv++;
+            if (*argv)
+                cap_time = atoi(*argv);
         }
+        if (*argv)
+            argv++;
     }
 
     header.riff_id = ID_RIFF;
@@ -176,26 +168,22 @@ int main(int argc, char **argv)
     header.data_id = ID_DATA;
 
     /* leave enough room for header */
-    if (!no_header) {
-        fseek(file, sizeof(struct wav_header), SEEK_SET);
-    }
+    fseek(file, sizeof(struct wav_header), SEEK_SET);
 
     /* install signal handler and begin capturing */
     signal(SIGINT, sigint_handler);
+    signal(SIGHUP, sigint_handler);
+    signal(SIGTERM, sigint_handler);
     frames = capture_sample(file, card, device, header.num_channels,
                             header.sample_rate, format,
-                            period_size, period_count, capture_time);
-    if (prinfo) {
-        printf("Captured %u frames\n", frames);
-    }
+                            period_size, period_count, cap_time);
+    printf("Captured %u frames\n", frames);
 
     /* write header now all information is known */
-    if (!no_header) {
-        header.data_sz = frames * header.block_align;
-        header.riff_sz = header.data_sz + sizeof(header) - 8;
-        fseek(file, 0, SEEK_SET);
-        fwrite(&header, sizeof(struct wav_header), 1, file);
-    }
+    header.data_sz = frames * header.block_align;
+    header.riff_sz = header.data_sz + sizeof(header) - 8;
+    fseek(file, 0, SEEK_SET);
+    fwrite(&header, sizeof(struct wav_header), 1, file);
 
     fclose(file);
 
@@ -205,15 +193,16 @@ int main(int argc, char **argv)
 unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
                             unsigned int channels, unsigned int rate,
                             enum pcm_format format, unsigned int period_size,
-                            unsigned int period_count, unsigned int capture_time)
+                            unsigned int period_count, unsigned int cap_time)
 {
     struct pcm_config config;
     struct pcm *pcm;
     char *buffer;
     unsigned int size;
-    unsigned int frames_read;
-    unsigned int total_frames_read;
-    unsigned int bytes_per_frame;
+    unsigned int bytes_read = 0;
+    unsigned int frames = 0;
+    struct timespec end;
+    struct timespec now;
 
     memset(&config, 0, sizeof(config));
     config.channels = channels;
@@ -236,32 +225,34 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
     buffer = malloc(size);
     if (!buffer) {
         fprintf(stderr, "Unable to allocate %u bytes\n", size);
+        free(buffer);
         pcm_close(pcm);
         return 0;
     }
 
-    if (prinfo) {
-        printf("Capturing sample: %u ch, %u hz, %u bit\n", channels, rate,
+    printf("Capturing sample: %u ch, %u hz, %u bit\n", channels, rate,
            pcm_format_to_bits(format));
-    }
 
-    bytes_per_frame = pcm_frames_to_bytes(pcm, 1);
-    total_frames_read = 0;
-    frames_read = 0;
-    while (capturing) {
-        frames_read = pcm_readi(pcm, buffer, pcm_get_buffer_size(pcm));
-        total_frames_read += frames_read;
-        if ((total_frames_read / rate) >= capture_time) {
-            capturing = 0;
-        }
-        if (fwrite(buffer, bytes_per_frame, frames_read, file) != frames_read) {
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    end.tv_sec = now.tv_sec + cap_time;
+    end.tv_nsec = now.tv_nsec;
+
+    while (capturing && !pcm_read(pcm, buffer, size)) {
+        if (fwrite(buffer, 1, size, file) != size) {
             fprintf(stderr,"Error capturing sample\n");
             break;
         }
+        bytes_read += size;
+        if (cap_time) {
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            if (now.tv_sec > end.tv_sec ||
+                (now.tv_sec == end.tv_sec && now.tv_nsec >= end.tv_nsec))
+                break;
+        }
     }
 
+    frames = pcm_bytes_to_frames(pcm, bytes_read);
     free(buffer);
     pcm_close(pcm);
-    return total_frames_read;
+    return frames;
 }
-
