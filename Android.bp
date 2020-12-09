@@ -6,8 +6,8 @@ cc_library {
         enabled: true,
     },
     srcs: [
-        "src/mixer.c",
-        "src/pcm.c",
+        "mixer.c",
+        "pcm.c",
     ],
     cflags: ["-Werror", "-Wno-macro-redefined"],
     export_include_dirs: ["include"],
@@ -23,7 +23,7 @@ cc_library {
 cc_binary {
     name: "tinyplay",
     host_supported: true,
-    srcs: ["utils/tinyplay.c"],
+    srcs: ["tinyplay.c"],
     shared_libs: ["libtinyalsa"],
     cflags: ["-Werror"],
     target: {
@@ -35,28 +35,28 @@ cc_binary {
 
 cc_binary {
     name: "tinycap",
-    srcs: ["utils/tinycap.c"],
+    srcs: ["tinycap.c"],
     shared_libs: ["libtinyalsa"],
     cflags: ["-Werror"],
 }
 
 cc_binary {
     name: "tinymix",
-    srcs: ["utils/tinymix.c"],
+    srcs: ["tinymix.c"],
     shared_libs: ["libtinyalsa"],
     cflags: ["-Werror", "-Wall"],
 }
 
 cc_binary {
     name: "tinyhostless",
-    srcs: ["utils/tinyhostless.c"],
+    srcs: ["tinyhostless.c"],
     shared_libs: ["libtinyalsa"],
     cflags: ["-Werror"],
 }
 
 cc_binary {
     name: "tinypcminfo",
-    srcs: ["utils/tinypcminfo.c"],
+    srcs: ["tinypcminfo.c"],
     shared_libs: ["libtinyalsa"],
     cflags: ["-Werror"],
 }
