@@ -2,14 +2,12 @@ cc_library {
     name: "libtinyalsa",
     host_supported: true,
     vendor_available: true,
+    vndk: {
+        enabled: true,
+    },
     srcs: [
         "src/mixer.c",
-        "src/mixer_hw.c",
-        "src/mixer_plugin.c",
         "src/pcm.c",
-        "src/pcm_hw.c",
-        "src/pcm_plugin.c",
-        "src/snd_card_plugin.c",
     ],
     cflags: ["-Werror", "-Wno-macro-redefined"],
     export_include_dirs: ["include"],
@@ -19,11 +17,6 @@ cc_library {
         darwin: {
             enabled: false,
         },
-    },
-
-    system_shared_libs: ["libc", "libdl"],
-    vndk: {
-        enabled: true,
     },
 }
 
@@ -52,6 +45,13 @@ cc_binary {
     srcs: ["utils/tinymix.c"],
     shared_libs: ["libtinyalsa"],
     cflags: ["-Werror", "-Wall"],
+}
+
+cc_binary {
+    name: "tinyhostless",
+    srcs: ["utils/tinyhostless.c"],
+    shared_libs: ["libtinyalsa"],
+    cflags: ["-Werror"],
 }
 
 cc_binary {
