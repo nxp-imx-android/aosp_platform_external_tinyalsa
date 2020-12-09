@@ -2,7 +2,6 @@ cc_library {
     name: "libtinyalsa",
     host_supported: true,
     vendor_available: true,
-    product_available: true,
     srcs: [
         "src/mixer.c",
         "src/mixer_hw.c",
