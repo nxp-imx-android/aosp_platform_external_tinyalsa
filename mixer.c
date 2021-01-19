@@ -297,9 +297,13 @@ fail:
 
 static bool mixer_ctl_get_elem_info(struct mixer_ctl* ctl)
 {
-    struct mixer_ctl_group *grp = ctl->grp;
+    struct mixer_ctl_group *grp;
     unsigned int i;
 
+    if (!ctl || !ctl->grp)
+        return false;
+
+    grp = ctl->grp;
     if (!ctl->info_retrieved) {
         if (grp->ops->ioctl(grp->data, SNDRV_CTL_IOCTL_ELEM_INFO,
                                                   ctl->info) < 0)
@@ -382,11 +386,12 @@ struct mixer_ctl *mixer_get_ctl_by_name(struct mixer *mixer, const char *name)
 {
     struct mixer_ctl_group *grp;
     unsigned int n;
-    int hw_ctl_count = mixer_grp_get_count(mixer->hw_grp);
+    int hw_ctl_count;
 
     if (!mixer)
         return NULL;
 
+    hw_ctl_count = mixer_grp_get_count(mixer->hw_grp);
     if (mixer->hw_grp) {
         grp = mixer->hw_grp;
 
@@ -412,8 +417,8 @@ void mixer_ctl_update(struct mixer_ctl *ctl)
 
     if (!ctl || !ctl->grp)
         return;
-    grp = ctl->grp;
 
+    grp = ctl->grp;
     grp->ops->ioctl(grp->data, SNDRV_CTL_IOCTL_ELEM_INFO, ctl->info);
 }
 
@@ -507,13 +512,14 @@ int mixer_ctl_set_percent(struct mixer_ctl *ctl, unsigned int id, int percent)
 
 int mixer_ctl_get_value(struct mixer_ctl *ctl, unsigned int id)
 {
-    struct mixer_ctl_group *grp = ctl->grp;
+    struct mixer_ctl_group *grp;
     struct snd_ctl_elem_value ev;
     int ret;
 
-    if (!ctl || (id >= ctl->info->count))
+    if (!ctl || (id >= ctl->info->count) || !ctl->grp)
         return -EINVAL;
 
+    grp = ctl->grp;
     memset(&ev, 0, sizeof(ev));
     ev.id.numid = ctl->info->id.numid;
     ret = grp->ops->ioctl(grp->data, SNDRV_CTL_IOCTL_ELEM_READ, &ev);
@@ -547,16 +553,17 @@ int mixer_ctl_is_access_tlv_rw(struct mixer_ctl *ctl)
 
 int mixer_ctl_get_array(struct mixer_ctl *ctl, void *array, size_t count)
 {
-    struct mixer_ctl_group *grp = ctl->grp;
+    struct mixer_ctl_group *grp;
     struct snd_ctl_elem_value ev;
     int ret = 0;
     size_t size;
     void *source;
     size_t total_count;
 
-    if ((!ctl) || !count || !array)
+    if ((!ctl) || !count || !array || !ctl->grp)
         return -EINVAL;
 
+    grp = ctl->grp;
     total_count = ctl->info->count;
 
     if ((ctl->info->type == SNDRV_CTL_ELEM_TYPE_BYTES) &&
@@ -627,14 +634,14 @@ int mixer_ctl_get_array(struct mixer_ctl *ctl, void *array, size_t count)
 
 int mixer_ctl_set_value(struct mixer_ctl *ctl, unsigned int id, int value)
 {
-    struct mixer_ctl_group *grp = ctl->grp;
-
+    struct mixer_ctl_group *grp;
     struct snd_ctl_elem_value ev;
     int ret;
 
-    if (!ctl || (id >= ctl->info->count))
+    if (!ctl || (id >= ctl->info->count) || !ctl->grp)
         return -EINVAL;
 
+    grp = ctl->grp;
     memset(&ev, 0, sizeof(ev));
     ev.id.numid = ctl->info->id.numid;
     ret = grp->ops->ioctl(grp->data, SNDRV_CTL_IOCTL_ELEM_READ, &ev);
@@ -667,15 +674,16 @@ int mixer_ctl_set_value(struct mixer_ctl *ctl, unsigned int id, int value)
 
 int mixer_ctl_set_array(struct mixer_ctl *ctl, const void *array, size_t count)
 {
-    struct mixer_ctl_group *grp = ctl->grp;
+    struct mixer_ctl_group *grp;
     struct snd_ctl_elem_value ev;
     size_t size;
     void *dest;
     size_t total_count;
 
-    if ((!ctl) || !count || !array)
+    if ((!ctl) || !count || !array || !ctl->grp)
         return -EINVAL;
 
+    grp = ctl->grp;
     total_count = ctl->info->count;
 
     if ((ctl->info->type == SNDRV_CTL_ELEM_TYPE_BYTES) &&
@@ -771,14 +779,15 @@ const char *mixer_ctl_get_enum_string(struct mixer_ctl *ctl,
 
 int mixer_ctl_set_enum_by_string(struct mixer_ctl *ctl, const char *string)
 {
-    struct mixer_ctl_group *grp = ctl->grp;
+    struct mixer_ctl_group *grp;
     unsigned int i, num_enums;
     struct snd_ctl_elem_value ev;
     int ret;
 
-    if (!ctl || (ctl->info->type != SNDRV_CTL_ELEM_TYPE_ENUMERATED))
+    if (!ctl || (ctl->info->type != SNDRV_CTL_ELEM_TYPE_ENUMERATED) || !ctl->grp)
         return -EINVAL;
 
+    grp = ctl->grp;
     num_enums = ctl->info->value.enumerated.items;
     for (i = 0; i < num_enums; i++) {
         if (!strcmp(string, ctl->ename[i])) {
