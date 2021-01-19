@@ -30,6 +30,8 @@
 #ifndef __PCM_PLUGIN_H__
 #define __PCM_PLUGIN_H__
 
+#include <poll.h>
+
 #define PCM_PLUGIN_OPEN_FN(name)                    \
     int name##_open(struct pcm_plugin **plugin,     \
                     unsigned int card,              \
@@ -63,6 +65,11 @@ struct pcm_plugin_ops {
     int (*drop) (struct pcm_plugin *plugin);
     int (*ioctl) (struct pcm_plugin *plugin,
                   int cmd, void *arg);
+    void* (*mmap) (struct pcm_plugin *plugin, void *addr, size_t length, int prot,
+                       int flags, off_t offset);
+    int (*munmap) (struct pcm_plugin *plugin, void *addr, size_t length);
+    int (*poll) (struct pcm_plugin *plugin, struct pollfd *pfd, nfds_t nfds,
+        int timeout);
 };
 
 struct pcm_plugin_min_max {
