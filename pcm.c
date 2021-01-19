@@ -886,8 +886,10 @@ int pcm_close(struct pcm *pcm)
         munmap(pcm->mmap_buffer, pcm_frames_to_bytes(pcm, pcm->buffer_size));
     }
 
-    pcm->ops->close(pcm->data);
-    snd_utils_put_dev_node(pcm->snd_node);
+    if (pcm->data)
+        pcm->ops->close(pcm->data);
+    if (pcm->snd_node)
+        snd_utils_put_dev_node(pcm->snd_node);
 
     pcm->prepared = 0;
     pcm->running = 0;
@@ -1059,10 +1061,12 @@ fail:
         munmap(pcm->mmap_buffer, pcm_frames_to_bytes(pcm, pcm->buffer_size));
 fail_close:
     pcm->ops->close(pcm->data);
+    pcm->data = NULL;
     pcm->fd = -1;
 
 fail_open:
     snd_utils_put_dev_node(pcm->snd_node);
+    pcm->snd_node = NULL;
     return pcm;
 }
 
