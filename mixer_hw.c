@@ -1,5 +1,6 @@
-/* pcm_hw.c
-** Copyright (c) 2019, The Linux Foundation.
+/* mixer_hw.c
+**
+** Copyright (c) 2019, The Linux Foundation. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted provided that the following conditions are
@@ -29,45 +30,46 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <fcntl.h>
 #include <stdarg.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
-#include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <ctype.h>
 #include <poll.h>
 
 #include <sys/ioctl.h>
-#include <sys/mman.h>
+
 #include <linux/ioctl.h>
 #include <sound/asound.h>
-#include <tinyalsa/asoundlib.h>
 
-#include "pcm_io.h"
+#include "mixer_io.h"
 
-struct pcm_hw_data {
-    /** Card number of the pcm device */
+struct mixer_hw_data {
     unsigned int card;
-    /** Device number for the pcm device */
-    unsigned int device;
-    /** File descriptor to the pcm device file node */
-    unsigned int fd;
-    /** Pointer to the pcm node from snd card definiton */
-    struct snd_node *node;
+    int fd;
 };
 
-static void pcm_hw_close(void *data)
+static void mixer_hw_close(void *data)
 {
-    struct pcm_hw_data *hw_data = data;
+    struct mixer_hw_data *hw_data = data;
 
-    if (hw_data->fd > 0)
+    if (!hw_data)
+        return;
+
+    if (hw_data->fd >= 0)
         close(hw_data->fd);
 
+    hw_data->fd = -1;
     free(hw_data);
+    hw_data = NULL;
 }
 
-static int pcm_hw_ioctl(void *data, unsigned int cmd, ...)
+static int mixer_hw_ioctl(void *data, unsigned int cmd, ...)
 {
-    struct pcm_hw_data *hw_data = data;
+    struct mixer_hw_data *hw_data = data;
     va_list ap;
     void *arg;
 
@@ -78,65 +80,43 @@ static int pcm_hw_ioctl(void *data, unsigned int cmd, ...)
     return ioctl(hw_data->fd, cmd, arg);
 }
 
-static int pcm_hw_poll(void *data __attribute__((unused)),
-                        struct pollfd *pfd, nfds_t nfds, int timeout)
+static ssize_t mixer_hw_read_event(void *data, struct snd_ctl_event *ev,
+                                   size_t size)
 {
-    return poll(pfd, nfds, timeout);
+    struct mixer_hw_data *hw_data = data;
+
+    return read(hw_data->fd, ev, size);
 }
 
-static void *pcm_hw_mmap(void *data, void *addr, size_t length, int prot,
-                       int flags, off_t offset)
-{
-    struct pcm_hw_data *hw_data = data;
+static struct mixer_ops mixer_hw_ops = {
+    .close = mixer_hw_close,
+    .get_poll_fd = NULL,
+    .read_event = mixer_hw_read_event,
+    .ioctl = mixer_hw_ioctl,
+};
 
-    return mmap(addr, length, prot, flags, hw_data->fd, offset);
-}
-
-static int pcm_hw_munmap(void *data __attribute__((unused)), void *addr, size_t length)
+int mixer_hw_open(unsigned int card, void **data,
+                  struct mixer_ops **ops)
 {
-    return munmap(addr, length);
-}
-
-static int pcm_hw_open(unsigned int card, unsigned int device,
-                unsigned int flags, void **data, struct snd_node *node)
-{
-    struct pcm_hw_data *hw_data;
-    char fn[256];
+    struct mixer_hw_data *hw_data;
     int fd;
+    char fn[256];
+
+    snprintf(fn, sizeof(fn), "/dev/snd/controlC%u", card);
+    fd = open(fn, O_RDWR);
+    if (fd < 0)
+        return fd;
 
     hw_data = calloc(1, sizeof(*hw_data));
     if (!hw_data) {
-        return -ENOMEM;
-    }
-
-    snprintf(fn, sizeof(fn), "/dev/snd/pcmC%uD%u%c", card, device,
-             flags & PCM_IN ? 'c' : 'p');
-    if (flags & PCM_NONBLOCK)
-        fd = open(fn, O_RDWR|O_NONBLOCK);
-    else
-        fd = open(fn, O_RDWR);
-
-    if (fd < 0) {
-        free(hw_data);
-        return fd;
+        close(fd);
+        return -1;
     }
 
     hw_data->card = card;
-    hw_data->device = device;
     hw_data->fd = fd;
-    hw_data->node = node;
-
     *data = hw_data;
+    *ops = &mixer_hw_ops;
 
     return fd;
 }
-
-const struct pcm_ops hw_ops = {
-    .open = pcm_hw_open,
-    .close = pcm_hw_close,
-    .ioctl = pcm_hw_ioctl,
-    .mmap = pcm_hw_mmap,
-    .munmap = pcm_hw_munmap,
-    .poll = pcm_hw_poll,
-};
-

@@ -1,5 +1,6 @@
 /* pcm_plugin.c
-** Copyright (c) 2019, The Linux Foundation.
+**
+** Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted provided that the following conditions are
@@ -42,10 +43,10 @@
 #include <linux/ioctl.h>
 #include <sound/asound.h>
 #include <tinyalsa/asoundlib.h>
-#include <tinyalsa/plugin.h>
+#include <tinyalsa/pcm_plugin.h>
 
 #include "pcm_io.h"
-#include "snd_card_plugin.h"
+#include "snd_utils.h"
 
 /* 2 words of uint32_t = 64 bits of mask */
 #define PCM_MASK_SIZE (2)
@@ -75,13 +76,13 @@ struct pcm_plug_data {
     unsigned int flags;
 
     void *dl_hdl;
-    /** pointer to plugin operation */
-    const struct pcm_plugin_ops *ops;
+    PCM_PLUGIN_OPEN_FN_PTR();
+
     struct pcm_plugin *plugin;
     void *dev_node;
 };
 
-static unsigned int param_list[] = {
+static unsigned int my_params[] = {
     SNDRV_PCM_HW_PARAM_SAMPLE_BITS,
     SNDRV_PCM_HW_PARAM_CHANNELS,
     SNDRV_PCM_HW_PARAM_RATE,
@@ -89,30 +90,12 @@ static unsigned int param_list[] = {
     SNDRV_PCM_HW_PARAM_PERIODS,
 };
 
-static int convert_plugin_to_pcm_state(int plugin_state)
-{
-    switch (plugin_state) {
-    case PCM_PLUG_STATE_SETUP:
-        return PCM_STATE_SETUP;
-    case PCM_PLUG_STATE_RUNNING:
-        return PCM_STATE_RUNNING;
-    case PCM_PLUG_STATE_PREPARED:
-        return PCM_STATE_PREPARED;
-    case PCM_PLUG_STATE_OPEN:
-        return PCM_STATE_OPEN;
-    default:
-        break;
-    }
-
-    return PCM_STATE_OPEN;
-}
-
 static void pcm_plug_close(void *data)
 {
     struct pcm_plug_data *plug_data = data;
     struct pcm_plugin *plugin = plug_data->plugin;
 
-    plug_data->ops->close(plugin);
+    plugin->ops->close(plugin);
     dlclose(plug_data->dl_hdl);
 
     free(plug_data);
@@ -465,8 +448,8 @@ static void pcm_plug_hw_params_set(struct snd_pcm_hw_params *p)
 
     /* Select the min values first */
     select = PCM_PLUG_HW_PARAM_SELECT_MIN;
-    for (i = 0; i < ARRAY_SIZE(param_list); i++)
-        pcm_plug_interval_select(p, param_list[i], select, 0);
+    for (i = 0; i < ARRAY_SIZE(my_params); i++)
+        pcm_plug_interval_select(p, my_params[i], select, 0);
 
     /* Select calculated values */
     select = PCM_PLUG_HW_PARAM_SELECT_VAL;
@@ -509,7 +492,7 @@ static int pcm_plug_hparams(struct pcm_plug_data *plug_data,
 
     pcm_plug_hw_params_set(params);
 
-    rc = plug_data->ops->hw_params(plugin, params);
+    rc = plugin->ops->hw_params(plugin, params);
     if (!rc)
         plugin->state = PCM_PLUG_STATE_SETUP;
 
@@ -524,7 +507,23 @@ static int pcm_plug_sparams(struct pcm_plug_data *plug_data,
     if (plugin->state != PCM_PLUG_STATE_SETUP)
         return -EBADFD;
 
-    return plug_data->ops->sw_params(plugin, params);
+    return plugin->ops->sw_params(plugin, params);
+}
+
+static int convert_plugin_to_pcm_state(int plugin_state)
+{
+    switch (plugin_state) {
+    case PCM_PLUG_STATE_SETUP:
+        return PCM_STATE_SETUP;
+    case PCM_PLUG_STATE_RUNNING:
+        return PCM_STATE_RUNNING;
+    case PCM_PLUG_STATE_PREPARED:
+        return PCM_STATE_PREPARED;
+    case PCM_PLUG_STATE_OPEN:
+        return PCM_STATE_OPEN;
+    }
+
+    return PCM_STATE_OPEN;
 }
 
 static int pcm_plug_sync_ptr(struct pcm_plug_data *plug_data,
@@ -534,7 +533,7 @@ static int pcm_plug_sync_ptr(struct pcm_plug_data *plug_data,
     int ret = -EBADFD;
 
     if (plugin->state >= PCM_PLUG_STATE_SETUP) {
-        ret = plug_data->ops->sync_ptr(plugin, sync_ptr);
+        ret = plugin->ops->sync_ptr(plugin, sync_ptr);
         if (ret == 0)
             sync_ptr->s.status.state = convert_plugin_to_pcm_state(plugin->state);
     }
@@ -551,7 +550,7 @@ static int pcm_plug_writei_frames(struct pcm_plug_data *plug_data,
         plugin->state != PCM_PLUG_STATE_RUNNING)
         return -EBADFD;
 
-    return plug_data->ops->writei_frames(plugin, x);
+    return plugin->ops->writei_frames(plugin, x);
 }
 
 static int pcm_plug_readi_frames(struct pcm_plug_data *plug_data,
@@ -562,7 +561,7 @@ static int pcm_plug_readi_frames(struct pcm_plug_data *plug_data,
     if (plugin->state != PCM_PLUG_STATE_RUNNING)
         return -EBADFD;
 
-    return plug_data->ops->readi_frames(plugin, x);
+    return plugin->ops->readi_frames(plugin, x);
 }
 
 static int pcm_plug_ttstamp(struct pcm_plug_data *plug_data,
@@ -570,10 +569,10 @@ static int pcm_plug_ttstamp(struct pcm_plug_data *plug_data,
 {
     struct pcm_plugin *plugin = plug_data->plugin;
 
-    if (plugin->state < PCM_PLUG_STATE_SETUP)
+    if (plugin->state >= PCM_PLUG_STATE_SETUP)
+        return plugin->ops->ttstamp(plugin, tstamp);
+    else
         return -EBADFD;
-
-    return plug_data->ops->ttstamp(plugin, tstamp);
 }
 
 static int pcm_plug_prepare(struct pcm_plug_data *plug_data)
@@ -584,7 +583,7 @@ static int pcm_plug_prepare(struct pcm_plug_data *plug_data)
     if (plugin->state != PCM_PLUG_STATE_SETUP)
         return -EBADFD;
 
-    rc = plug_data->ops->prepare(plugin);
+    rc = plugin->ops->prepare(plugin);
     if (!rc)
         plugin->state = PCM_PLUG_STATE_PREPARED;
 
@@ -599,7 +598,7 @@ static int pcm_plug_start(struct pcm_plug_data *plug_data)
     if (plugin->state != PCM_PLUG_STATE_PREPARED)
         return -EBADFD;
 
-    rc = plug_data->ops->start(plugin);
+    rc = plugin->ops->start(plugin);
     if (!rc)
         plugin->state = PCM_PLUG_STATE_RUNNING;
 
@@ -609,9 +608,9 @@ static int pcm_plug_start(struct pcm_plug_data *plug_data)
 static int pcm_plug_drop(struct pcm_plug_data *plug_data)
 {
     struct pcm_plugin *plugin = plug_data->plugin;
-    int rc;
+    int rc = 0;
 
-    rc = plug_data->ops->drop(plugin);
+    rc = plugin->ops->drop(plugin);
     if (!rc)
         plugin->state = PCM_PLUG_STATE_SETUP;
 
@@ -665,7 +664,7 @@ static int pcm_plug_ioctl(void *data, unsigned int cmd, ...)
         ret = pcm_plug_readi_frames(plug_data, arg);
         break;
     default:
-        ret = plug_data->ops->ioctl(plugin, cmd, arg);
+        ret = plugin->ops->ioctl(plugin, cmd, arg);
         break;
     }
 
@@ -678,10 +677,10 @@ static int pcm_plug_poll(void *data, struct pollfd *pfd, nfds_t nfds,
     struct pcm_plug_data *plug_data = data;
     struct pcm_plugin *plugin = plug_data->plugin;
 
-    return plug_data->ops->poll(plugin, pfd, nfds, timeout);
+    return plugin->ops->poll(plugin, pfd, nfds, timeout);
 }
 
-static void *pcm_plug_mmap(void *data, void *addr, size_t length, int prot,
+static void* pcm_plug_mmap(void *data, void *addr, size_t length, int prot,
                        int flags, off_t offset)
 {
     struct pcm_plug_data *plug_data = data;
@@ -689,8 +688,7 @@ static void *pcm_plug_mmap(void *data, void *addr, size_t length, int prot,
 
     if (plugin->state != PCM_PLUG_STATE_SETUP)
         return NULL;
-
-    return plug_data->ops->mmap(plugin, addr, length, prot, flags, offset);
+    return plugin->ops->mmap(plugin, addr, length, prot, flags, offset);
 }
 
 static int pcm_plug_munmap(void *data, void *addr, size_t length)
@@ -701,16 +699,16 @@ static int pcm_plug_munmap(void *data, void *addr, size_t length)
     if (plugin->state != PCM_PLUG_STATE_SETUP)
         return -EBADFD;
 
-    return plug_data->ops->munmap(plugin, addr, length);
+    return plugin->ops->munmap(plugin, addr, length);
 }
 
 static int pcm_plug_open(unsigned int card, unsigned int device,
-                         unsigned int flags, void **data, struct snd_node *pcm_node)
+                  unsigned int flags, void **data, void *pcm_node)
 {
     struct pcm_plug_data *plug_data;
     void *dl_hdl;
     int rc = 0;
-    char *so_name;
+    char *so_name, token[80], *name, *open_fn, *token_saveptr;
 
     plug_data = calloc(1, sizeof(*plug_data));
     if (!plug_data) {
@@ -725,7 +723,7 @@ static int pcm_plug_open(unsigned int card, unsigned int device,
 
     dl_hdl = dlopen(so_name, RTLD_NOW);
     if (!dl_hdl) {
-        fprintf(stderr, "%s: unable to open %s\n", __func__, so_name);
+        fprintf(stderr, "%s: unable to open %s: %s\n", __func__, so_name, dlerror());
         goto err_dl_open;
     } else {
         fprintf(stderr, "%s: dlopen successful for %s\n", __func__, so_name);
@@ -733,18 +731,39 @@ static int pcm_plug_open(unsigned int card, unsigned int device,
 
     dlerror();
 
-    plug_data->ops = dlsym(dl_hdl, "pcm_plugin_ops");
-    if (!plug_data->ops) {
+    sscanf(so_name, "lib%s", token);
+    token_saveptr = token;
+    name = strtok_r(token, ".", &token_saveptr);
+    if (!name) {
+        fprintf(stderr, "%s: invalid library name\n", __func__);
+        goto err_open_fn;
+    }
+    open_fn = calloc(1, strlen(name) + strlen("_open") + 1);
+    if (!open_fn) {
+        rc = -ENOMEM;
+        goto err_open_fn;
+    }
+
+    strncpy(open_fn, name, strlen(name) + 1);
+    strcat(open_fn, "_open");
+
+    printf("%s - %s\n", __func__, open_fn);
+    plug_data->plugin_open_fn = dlsym(dl_hdl, open_fn);
+    if (!plug_data->plugin_open_fn) {
         fprintf(stderr, "%s: dlsym to open fn failed, err = '%s'\n",
                 __func__, dlerror());
         goto err_dlsym;
     }
 
-    rc = plug_data->ops->open(&plug_data->plugin, card, device, flags);
+    rc = plug_data->plugin_open_fn(&plug_data->plugin,
+                    card, device, flags);
     if (rc) {
         fprintf(stderr, "%s: failed to open plugin\n", __func__);
-        goto err_open;
+        goto err_dlsym;
     }
+
+    /* Call snd-card-def to get card and pcm nodes */
+    /* Check how to manage fd for plugin */
 
     plug_data->dl_hdl = dl_hdl;
     plug_data->card = card;
@@ -756,10 +775,12 @@ static int pcm_plug_open(unsigned int card, unsigned int device,
 
     plug_data->plugin->state = PCM_PLUG_STATE_OPEN;
 
+    free(open_fn);
     return 0;
 
-err_open:
 err_dlsym:
+    free(open_fn);
+err_open_fn:
     dlclose(dl_hdl);
 err_get_lib:
 err_dl_open:
@@ -768,7 +789,7 @@ err_dl_open:
     return rc;
 }
 
-const struct pcm_ops plug_ops = {
+struct pcm_ops plug_ops = {
     .open = pcm_plug_open,
     .close = pcm_plug_close,
     .ioctl = pcm_plug_ioctl,

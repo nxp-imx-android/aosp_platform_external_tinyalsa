@@ -2,14 +2,18 @@ cc_library {
     name: "libtinyalsa",
     host_supported: true,
     vendor_available: true,
+    product_available: true,
+    vndk: {
+        enabled: true,
+    },
     srcs: [
-        "src/mixer.c",
-        "src/mixer_hw.c",
-        "src/mixer_plugin.c",
-        "src/pcm.c",
-        "src/pcm_hw.c",
-        "src/pcm_plugin.c",
-        "src/snd_card_plugin.c",
+        "mixer.c",
+        "mixer_hw.c",
+        "mixer_plugin.c",
+        "pcm.c",
+        "pcm_hw.c",
+        "pcm_plugin.c",
+        "snd_utils.c",
     ],
     cflags: ["-Werror", "-Wno-macro-redefined"],
     export_include_dirs: ["include"],
@@ -21,16 +25,13 @@ cc_library {
         },
     },
 
-    system_shared_libs: ["libc", "libdl"],
-    vndk: {
-        enabled: true,
-    },
+    system_shared_libs: ["libc","libdl"],
 }
 
 cc_binary {
     name: "tinyplay",
     host_supported: true,
-    srcs: ["utils/tinyplay.c"],
+    srcs: ["tinyplay.c"],
     shared_libs: ["libtinyalsa"],
     cflags: ["-Werror"],
     target: {
@@ -42,21 +43,28 @@ cc_binary {
 
 cc_binary {
     name: "tinycap",
-    srcs: ["utils/tinycap.c"],
+    srcs: ["tinycap.c"],
     shared_libs: ["libtinyalsa"],
     cflags: ["-Werror"],
 }
 
 cc_binary {
     name: "tinymix",
-    srcs: ["utils/tinymix.c"],
+    srcs: ["tinymix.c"],
     shared_libs: ["libtinyalsa"],
     cflags: ["-Werror", "-Wall"],
 }
 
 cc_binary {
+    name: "tinyhostless",
+    srcs: ["tinyhostless.c"],
+    shared_libs: ["libtinyalsa"],
+    cflags: ["-Werror"],
+}
+
+cc_binary {
     name: "tinypcminfo",
-    srcs: ["utils/tinypcminfo.c"],
+    srcs: ["tinypcminfo.c"],
     shared_libs: ["libtinyalsa"],
     cflags: ["-Werror"],
 }

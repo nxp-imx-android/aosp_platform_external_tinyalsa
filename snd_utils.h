@@ -1,5 +1,6 @@
 /* snd_utils.h
-** Copyright (c) 2019, The Linux Foundation.
+**
+** Copyright (c) 2019, The Linux Foundation. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted provided that the following conditions are
@@ -27,25 +28,27 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **/
 
-#ifndef TINYALSA_SRC_SND_CARD_UTILS_H
-#define TINYALSA_SRC_SND_CARD_UTILS_H
-
-#include <tinyalsa/plugin.h>
+#ifndef __SND_CARD_UTILS_H__
+#define __SND_CARD_UTILS_H__
 
 #include <dlfcn.h>
 
-/** Encapsulates the pcm device definition from
- * the sound card definition configuration file.
- */
 struct snd_node {
-    /** Pointer the card definition */
     void *card_node;
-    /** Pointer to device definition, either PCM or MIXER device */
     void *dev_node;
-    /** Pointer to the sound card parser library */
     void *dl_hdl;
-    /** A pointer to the operations structure. */
-    const struct snd_node_ops* ops;
+
+    void* (*get_card) (unsigned int card);
+    void (*put_card) (void *card);
+    void* (*get_node) (void *card, unsigned int id,
+                      int type);
+    int (*get_int) (void *node, const char *prop, int *val);
+    int (*get_str) (void *node, const char *prop, char **val);
+};
+
+enum {
+    NODE_PCM,
+    NODE_MIXER,
 };
 
 enum snd_node_type {
@@ -54,16 +57,10 @@ enum snd_node_type {
     SND_NODE_TYPE_INVALID,
 };
 
-enum {
-  NODE_PCM,
-  NODE_MIXER
-};
+struct snd_node *snd_utils_get_dev_node(unsigned int card,
+        unsigned int device, int dev_type);
 
-struct snd_node *snd_utils_open_pcm(unsigned int card, unsigned int device);
-
-struct snd_node *snd_utils_open_mixer(unsigned int card);
-
-void snd_utils_close_dev_node(struct snd_node *node);
+void snd_utils_put_dev_node(struct snd_node *node);
 
 enum snd_node_type snd_utils_get_node_type(struct snd_node *node);
 
@@ -71,4 +68,4 @@ int snd_utils_get_int(struct snd_node *node, const char *prop, int *val);
 
 int snd_utils_get_str(struct snd_node *node, const char *prop, char **val);
 
-#endif /* end of TINYALSA_SRC_SND_CARD_UTILS_H */
+#endif /* end of __SND_CARD_UTILS_H__ */

@@ -1,5 +1,6 @@
 /* mixer_io.h
-** Copyright (c) 2019, The Linux Foundation.
+**
+** Copyright (c) 2019, The Linux Foundation. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted provided that the following conditions are
@@ -27,8 +28,8 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **/
 
-#ifndef TINYALSA_SRC_MIXER_H
-#define TINYALSA_SRC_MIXER_H
+#ifndef __MIXER_H__
+#define __MIXER_H__
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,9 +38,9 @@
 struct mixer_ops;
 
 int mixer_hw_open(unsigned int card, void **data,
-                  const struct mixer_ops **ops);
+                  struct mixer_ops **ops);
 int mixer_plugin_open(unsigned int card, void **data,
-                      const struct mixer_ops **ops);
+                      struct mixer_ops **ops);
 
 struct mixer_ops {
     void (*close) (void *data);
@@ -48,4 +49,4 @@ struct mixer_ops {
     int (*ioctl) (void *data, unsigned int cmd, ...);
 };
 
-#endif /* TINYALSA_SRC_MIXER_H */
+#endif /* end of __MIXER_H__ */
