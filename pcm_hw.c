@@ -1,5 +1,6 @@
-/* mixer_hw.c
-** Copyright (c) 2019, The Linux Foundation.
+/* pcm_hw.c
+**
+** Copyright (c) 2019, The Linux Foundation. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted provided that the following conditions are
@@ -29,49 +30,41 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdarg.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <string.h>
-#include <unistd.h>
 #include <fcntl.h>
+#include <stdarg.h>
+#include <string.h>
 #include <errno.h>
-#include <ctype.h>
+#include <unistd.h>
 #include <poll.h>
 
 #include <sys/ioctl.h>
-
+#include <sys/mman.h>
 #include <linux/ioctl.h>
 #include <sound/asound.h>
+#include <tinyalsa/asoundlib.h>
 
-#include "mixer_io.h"
+#include "pcm_io.h"
 
-/** Store the hardware (kernel interface) mixer data */
-struct mixer_hw_data {
-    /* Card number for the mixer */
+struct pcm_hw_data {
     unsigned int card;
-    /* File descriptor of the mixer device node */
-    int fd;
+    unsigned int device;
+    unsigned int fd;
+    void *snd_node;
 };
 
-static void mixer_hw_close(void *data)
+static void pcm_hw_close(void *data)
 {
-    struct mixer_hw_data *hw_data = data;
-
-    if (!hw_data)
-        return;
+    struct pcm_hw_data *hw_data = data;
 
     if (hw_data->fd >= 0)
         close(hw_data->fd);
 
-    hw_data->fd = -1;
     free(hw_data);
-    hw_data = NULL;
 }
 
-static int mixer_hw_ioctl(void *data, unsigned int cmd, ...)
+static int pcm_hw_ioctl(void *data, unsigned int cmd, ...)
 {
-    struct mixer_hw_data *hw_data = data;
+    struct pcm_hw_data *hw_data = data;
     va_list ap;
     void *arg;
 
@@ -82,40 +75,72 @@ static int mixer_hw_ioctl(void *data, unsigned int cmd, ...)
     return ioctl(hw_data->fd, cmd, arg);
 }
 
-static ssize_t mixer_hw_read_event(void *data, struct snd_ctl_event *ev,
-                                   size_t size)
+static int pcm_hw_poll(void *data __attribute__((unused)),
+        struct pollfd *pfd, nfds_t nfds, int timeout)
 {
-    struct mixer_hw_data *hw_data = data;
-
-    return read(hw_data->fd, ev, size);
+    return poll(pfd, nfds, timeout);
 }
 
-static const struct mixer_ops mixer_hw_ops = {
-    .close = mixer_hw_close,
-    .ioctl = mixer_hw_ioctl,
-    .read_event = mixer_hw_read_event,
-};
-
-int mixer_hw_open(unsigned int card, void **data,
-                  const struct mixer_ops **ops)
+static void* pcm_hw_mmap(void *data, void *addr, size_t length, int prot,
+                       int flags, off_t offset)
 {
-    struct mixer_hw_data *hw_data;
-    int fd;
-    char fn[256];
+    struct pcm_hw_data *hw_data = data;
 
-    snprintf(fn, sizeof(fn), "/dev/snd/controlC%u", card);
-    fd = open(fn, O_RDWR);
-    if (fd < 0)
-        return fd;
+   return mmap(addr, length, prot, flags, hw_data->fd, offset);
+}
+
+static int pcm_hw_munmap(void *data __attribute__((unused)), void *addr, size_t length)
+{
+    return munmap(addr, length);
+}
+
+static int pcm_hw_open(unsigned int card, unsigned int device,
+                unsigned int flags, void **data,
+                __attribute__((unused)) void *node)
+{
+    struct pcm_hw_data *hw_data;
+    char fn[256];
+    int fd;
 
     hw_data = calloc(1, sizeof(*hw_data));
-    if (!hw_data)
-        return -1;
+    if (!hw_data) {
+        return -ENOMEM;
+    }
 
+    snprintf(fn, sizeof(fn), "/dev/snd/pcmC%uD%u%c", card, device,
+             flags & PCM_IN ? 'c' : 'p');
+    fd = open(fn, O_RDWR|O_NONBLOCK);
+    if (fd < 0) {
+        printf("%s: cannot open device '%s'", __func__, fn);
+        return fd;
+    }
+
+    if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK) < 0) {
+        printf("%s: failed to reset blocking mode '%s'",
+                __func__, fn);
+        goto err_close;
+    }
+
+    hw_data->snd_node = node;
     hw_data->card = card;
+    hw_data->device = device;
     hw_data->fd = fd;
+
     *data = hw_data;
-    *ops = &mixer_hw_ops;
 
     return fd;
+
+err_close:
+    close(fd);
+    free(hw_data);
+    return -ENODEV;
 }
+
+struct pcm_ops hw_ops = {
+    .open = pcm_hw_open,
+    .close = pcm_hw_close,
+    .ioctl = pcm_hw_ioctl,
+    .mmap = pcm_hw_mmap,
+    .munmap = pcm_hw_munmap,
+    .poll = pcm_hw_poll,
+};

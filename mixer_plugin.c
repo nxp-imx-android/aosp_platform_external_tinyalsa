@@ -1,5 +1,6 @@
 /* mixer_plugin.c
-** Copyright (c) 2019, The Linux Foundation.
+**
+** Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted provided that the following conditions are
@@ -27,8 +28,6 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **/
 
-#include <tinyalsa/plugin.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -41,28 +40,25 @@
 #include <ctype.h>
 #include <poll.h>
 #include <dlfcn.h>
-#include <string.h>
 #include <sys/eventfd.h>
 #include <sys/ioctl.h>
 
 #include <linux/ioctl.h>
 #include <sound/asound.h>
 
-#include "snd_card_plugin.h"
+#include <tinyalsa/asoundlib.h>
+#include <tinyalsa/mixer_plugin.h>
+#include "snd_utils.h"
+
 #include "mixer_io.h"
 
-/** Encapulates the mixer plugin specific data */
 struct mixer_plug_data {
-    /** Card number associated with the plugin */
     int card;
-    /** Device node for mixer */
     void *mixer_node;
-    /** Pointer to the plugin's ops */
-    const struct mixer_plugin_ops *ops;
-    /** Pointer to plugin responsible to service the controls */
+
     struct mixer_plugin *plugin;
-    /** Handle to the plugin library */
     void *dl_hdl;
+    MIXER_PLUGIN_OPEN_FN_PTR();
 };
 
 static int mixer_plug_get_elem_id(struct mixer_plug_data *plug_data,
@@ -72,8 +68,7 @@ static int mixer_plug_get_elem_id(struct mixer_plug_data *plug_data,
     struct snd_control *ctl;
 
     if (offset >= plugin->num_controls) {
-        fprintf(stderr, "%s: invalid offset %u\n",
-				__func__, offset);
+        printf("%s: invalid offset %u\n", __func__, offset);
         return -EINVAL;
     }
 
@@ -95,7 +90,7 @@ static int mixer_plug_info_enum(struct snd_control *ctl,
     einfo->count = 1;
     einfo->value.enumerated.items = val->items;
 
-    if (einfo->value.enumerated.item >= val->items)
+    if (einfo->value.enumerated.item > val->items)
         return -EINVAL;
 
     strncpy(einfo->value.enumerated.name,
@@ -150,12 +145,14 @@ static ssize_t mixer_plug_read_event(void *data, struct snd_ctl_event *ev, size_
     eventfd_t evfd;
     ssize_t result = 0;
 
-    result = plug_data->ops->read_event(plugin, ev, size);
+    result = plugin->ops->read_event(plugin, (struct ctl_event *)ev, size);
 
     if (result > 0) {
         plugin->event_cnt -=  result / sizeof(struct snd_ctl_event);
-        if (plugin->event_cnt == 0)
+        if (plugin->event_cnt <= 0) {
+            plugin->event_cnt = 0;
             eventfd_read(plugin->eventfd, &evfd);
+        }
     }
 
     return result;
@@ -173,9 +170,9 @@ static int mixer_plug_subscribe_events(struct mixer_plug_data *plug_data,
     }
 
     if (*subscribe && !plugin->subscribed) {
-        plug_data->ops->subscribe_events(plugin, &mixer_plug_notifier_cb);
+        plugin->ops->subscribe_events(plugin, &mixer_plug_notifier_cb);
     } else if (plugin->subscribed && !*subscribe) {
-        plug_data->ops->subscribe_events(plugin, NULL);
+        plugin->ops->subscribe_events(plugin, NULL);
 
         if (plugin->event_cnt)
             eventfd_read(plugin->eventfd, &evfd);
@@ -291,8 +288,7 @@ static int mixer_plug_get_elem_info(struct mixer_plug_data *plug_data,
             return ret;
         break;
     default:
-        fprintf(stderr,"%s: unknown type %d\n",
-				__func__, einfo->type);
+        printf("%s: unknown type %d\n", __func__, einfo->type);
         return -EINVAL;
     }
 
@@ -330,6 +326,13 @@ static int mixer_plug_get_card_info(struct mixer_plug_data *plug_data,
     /*TODO: Fill card_info here from snd-card-def */
     memset(card_info, 0, sizeof(*card_info));
     card_info->card = plug_data->card;
+    memcpy(card_info->id, "card_id", strlen("card_id") + 1);
+    memcpy(card_info->driver, "mymixer-so-name", strlen("mymixer-so-name") + 1);
+    memcpy(card_info->name, "card-name", strlen("card-name") + 1);
+    memcpy(card_info->longname, "card-name", strlen("card-name") + 1);
+    memcpy(card_info->mixername, "mixer-name", strlen("mixer-name") + 1);
+
+    printf("%s: card = %d\n", __func__, plug_data->card);
 
     return 0;
 }
@@ -343,9 +346,9 @@ static void mixer_plug_close(void *data)
     if (plugin->event_cnt)
         eventfd_read(plugin->eventfd, &evfd);
 
-    plug_data->ops->close(&plugin);
+    plugin->ops->close(&plugin);
     dlclose(plug_data->dl_hdl);
-
+    snd_utils_put_dev_node(plug_data->mixer_node);
     free(plug_data);
     plug_data = NULL;
 }
@@ -395,32 +398,34 @@ static int mixer_plug_ioctl(void *data, unsigned int cmd, ...)
     return ret;
 }
 
-static const struct mixer_ops mixer_plug_ops = {
+static struct mixer_ops mixer_plug_ops = {
     .close = mixer_plug_close,
-    .read_event = mixer_plug_read_event,
     .get_poll_fd = mixer_plug_get_poll_fd,
+    .read_event = mixer_plug_read_event,
     .ioctl = mixer_plug_ioctl,
 };
 
 int mixer_plugin_open(unsigned int card, void **data,
-                      const struct mixer_ops **ops)
+                      struct mixer_ops **ops)
 {
     struct mixer_plug_data *plug_data;
     struct mixer_plugin *plugin = NULL;
     void *dl_hdl;
-    char *so_name;
+    char *name, *so_name;
+    char *open_fn_name, token[80], *token_saveptr;
     int ret;
 
     plug_data = calloc(1, sizeof(*plug_data));
     if (!plug_data)
         return -ENOMEM;
 
-    plug_data->mixer_node = snd_utils_open_mixer(card);
+    /* mixer id is fixed to 1 in snd-card-def xml */
+    plug_data->mixer_node = snd_utils_get_dev_node(card, 1, NODE_MIXER);
     if (!plug_data->mixer_node) {
         /* Do not print error here.
          * It is valid for card to not have virtual mixer node
          */
-        goto err_get_mixer_node;
+        goto err_free_plug_data;
     }
 
     ret = snd_utils_get_str(plug_data->mixer_node, "so-name",
@@ -428,7 +433,7 @@ int mixer_plugin_open(unsigned int card, void **data,
     if(ret) {
         fprintf(stderr, "%s: mixer so-name not found for card %u\n",
                 __func__, card);
-        goto err_get_lib_name;
+        goto err_put_dev_node;
 
     }
 
@@ -436,22 +441,39 @@ int mixer_plugin_open(unsigned int card, void **data,
     if (!dl_hdl) {
         fprintf(stderr, "%s: unable to open %s\n",
                 __func__, so_name);
-        goto err_dlopen;
+        goto err_put_dev_node;
     }
 
-    dlerror();
-    plug_data->ops = dlsym(dl_hdl, "mixer_plugin_ops");
-    if (!plug_data->ops) {
+    sscanf(so_name, "lib%s", token);
+    token_saveptr = token;
+    name = strtok_r(token, ".", &token_saveptr);
+    if (!name) {
+        fprintf(stderr, "%s: invalid library name\n", __func__);
+        goto err_dl_hdl;
+    }
+
+    open_fn_name = calloc(1, strlen(name) + strlen("_open") + 1);
+    if (!open_fn_name) {
+        ret = -ENOMEM;
+        goto err_dl_hdl;
+    }
+
+    strncpy(open_fn_name, name, strlen(name) + 1);
+    strcat(open_fn_name, "_open");
+
+    printf("%s - %s\n", __func__, open_fn_name);
+
+    plug_data->mixer_plugin_open_fn = dlsym(dl_hdl, open_fn_name);
+    if (!plug_data->mixer_plugin_open_fn) {
         fprintf(stderr, "%s: dlsym open fn failed: %s\n",
                 __func__, dlerror());
-        goto err_ops;
+        goto err_open_fn_name;
     }
-
-    ret = plug_data->ops->open(&plugin, card);
+    ret = plug_data->mixer_plugin_open_fn(&plugin, card);
     if (ret) {
         fprintf(stderr, "%s: failed to open plugin, err: %d\n",
                 __func__, ret);
-        goto err_ops;
+        goto err_open_fn_name;
     }
 
     plug_data->plugin = plugin;
@@ -462,14 +484,22 @@ int mixer_plugin_open(unsigned int card, void **data,
     *data = plug_data;
     *ops = &mixer_plug_ops;
 
+    printf("%s: card = %d\n", __func__, plug_data->card);
+
+    free(open_fn_name);
     return 0;
 
-err_ops:
+err_open_fn_name:
+    free(open_fn_name);
+
+err_dl_hdl:
     dlclose(dl_hdl);
-err_dlopen:
-err_get_lib_name:
-    snd_utils_close_dev_node(plug_data->mixer_node);
-err_get_mixer_node:
+
+err_put_dev_node:
+    snd_utils_put_dev_node(plug_data->mixer_node);
+
+err_free_plug_data:
+
     free(plug_data);
     return -1;
 }

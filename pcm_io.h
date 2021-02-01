@@ -1,5 +1,6 @@
-/* pcm_io.h
-** Copyright (c) 2019, The Linux Foundation.
+/* pcm.h
+**
+** Copyright (c) 2019, The Linux Foundation. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted provided that the following conditions are
@@ -27,26 +28,20 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **/
 
-#ifndef TINYALSA_SRC_PCM_IO_H
-#define TINYALSA_SRC_PCM_IO_H
+#ifndef __PCM_H__
+#define __PCM_H__
 
 #include <poll.h>
-#include <sound/asound.h>
-
-struct snd_node;
 
 struct pcm_ops {
     int (*open) (unsigned int card, unsigned int device,
-                 unsigned int flags, void **data, struct snd_node *node);
+                 unsigned int flags, void **data, void *node);
     void (*close) (void *data);
     int (*ioctl) (void *data, unsigned int cmd, ...);
-    void *(*mmap) (void *data, void *addr, size_t length, int prot, int flags,
-                   off_t offset);
+    void* (*mmap) (void *data, void *addr, size_t length, int prot, int flags,
+                 off_t offset);
     int (*munmap) (void *data, void *addr, size_t length);
     int (*poll) (void *data, struct pollfd *pfd, nfds_t nfds, int timeout);
 };
 
-extern const struct pcm_ops hw_ops;
-extern const struct pcm_ops plug_ops;
-
-#endif /* TINYALSA_SRC_PCM_IO_H */
+#endif /* end of __PCM_H__ */
