@@ -1062,13 +1062,11 @@ fail:
         pcm->ops->munmap(pcm->data, pcm->mmap_buffer, pcm_frames_to_bytes(pcm, pcm->buffer_size));
 fail_close:
     pcm->ops->close(pcm->data);
-    pcm->data = NULL;
-    pcm->fd = -1;
 
 fail_open:
     snd_utils_put_dev_node(pcm->snd_node);
-    pcm->snd_node = NULL;
-    return pcm;
+    free(pcm);
+    return &bad_pcm;
 }
 
 int pcm_is_ready(struct pcm *pcm)
