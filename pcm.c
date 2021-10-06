@@ -912,8 +912,10 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
         return &bad_pcm; /* TODO: could support default config here */
     }
     pcm = calloc(1, sizeof(struct pcm));
-    if (!pcm)
+    if (!pcm) {
+        oops(&bad_pcm, ENOMEM, "can't allocate PCM object");
         return &bad_pcm; /* TODO: could support default config here */
+    }
 
     pcm->config = *config;
     pcm->flags = flags;
@@ -927,13 +929,13 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
 
     pcm->fd = pcm->ops->open(card, device, flags, &pcm->data, pcm->snd_node);
     if (pcm->fd < 0) {
-        oops(pcm, errno, "cannot open device %u for card %u",
+        oops(&bad_pcm, errno, "cannot open device %u for card %u",
              device, card);
         goto fail_open;
     }
 
     if (pcm->ops->ioctl(pcm->data, SNDRV_PCM_IOCTL_INFO, &info)) {
-        oops(pcm, errno, "cannot get info");
+        oops(&bad_pcm, errno, "cannot get info");
         goto fail_close;
     }
     pcm->subdevice = info.subdevice;
@@ -955,7 +957,7 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
 
     if (flags & PCM_NOIRQ) {
         if (!(flags & PCM_MMAP)) {
-            oops(pcm, EINVAL, "noirq only currently supported with mmap().");
+            oops(&bad_pcm, EINVAL, "noirq only currently supported with mmap().");
             goto fail_close;
         }
 
@@ -971,7 +973,7 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
                        SNDRV_PCM_ACCESS_RW_INTERLEAVED);
 
     if (pcm->ops->ioctl(pcm->data, SNDRV_PCM_IOCTL_HW_PARAMS, &params)) {
-        oops(pcm, errno, "cannot set hw params");
+        oops(&bad_pcm, errno, "cannot set hw params");
         goto fail_close;
     }
 
@@ -985,7 +987,7 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
                 pcm_frames_to_bytes(pcm, pcm->buffer_size),
                 PROT_READ | PROT_WRITE, MAP_FILE | MAP_SHARED, 0);
         if (pcm->mmap_buffer == MAP_FAILED) {
-            oops(pcm, errno, "failed to mmap buffer %d bytes\n",
+            oops(&bad_pcm, errno, "failed to mmap buffer %d bytes\n",
                  pcm_frames_to_bytes(pcm, pcm->buffer_size));
             goto fail_close;
         }
@@ -1033,13 +1035,13 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
         pcm->boundary *= 2;
 
     if (pcm->ops->ioctl(pcm->data, SNDRV_PCM_IOCTL_SW_PARAMS, &sparams)) {
-        oops(pcm, errno, "cannot set sw params");
+        oops(&bad_pcm, errno, "cannot set sw params");
         goto fail;
     }
 
     rc = pcm_hw_mmap_status(pcm);
     if (rc < 0) {
-        oops(pcm, errno, "mmap status failed");
+        oops(&bad_pcm, errno, "mmap status failed");
         goto fail;
     }
 
@@ -1048,7 +1050,7 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
         int arg = SNDRV_PCM_TSTAMP_TYPE_MONOTONIC;
         rc = pcm->ops->ioctl(pcm->data, SNDRV_PCM_IOCTL_TTSTAMP, &arg);
         if (rc < 0) {
-            oops(pcm, errno, "cannot set timestamp type");
+            oops(&bad_pcm, errno, "cannot set timestamp type");
             goto fail;
         }
     }
