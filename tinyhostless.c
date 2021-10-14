@@ -73,7 +73,7 @@ int main(int argc, char **argv)
     if (argc < 2) {
         fprintf(stderr, "Usage: %s [-D card] [-P playback device]"
             " [-C capture device] [-p period_size] [-n n_periods]"
-            " [-c num_channels] [-r sample_rate] [-l]"
+            " [-c num_channels] [-b number_bits] [-r sample_rate] [-l]"
             " [-T playback/capture time]\n\n"
             "Used to enable 'hostless' mode for audio devices with a DSP back-end.\n"
             "Alternatively, specify '-l' for loopback mode: this program will read\n"
@@ -109,6 +109,11 @@ int main(int argc, char **argv)
             argv++;
             if (*argv)
                 num_channels = atoi(*argv);
+        }
+        if (strcmp(*argv, "-b") == 0) {
+            argv++;
+            if (*argv)
+                number_bits = atoi(*argv);
         }
         if (strcmp(*argv, "-r") == 0) {
             argv++;
