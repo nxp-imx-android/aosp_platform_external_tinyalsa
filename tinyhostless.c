@@ -209,7 +209,7 @@ static int check_params(unsigned int card, unsigned int device, unsigned int dir
 
     can_play = check_param(params, PCM_PARAM_RATE, config->rate, "Sample rate", "Hz");
     can_play &= check_param(params, PCM_PARAM_CHANNELS, config->channels, "Sample", " channels");
-    can_play &= check_param(params, PCM_PARAM_SAMPLE_BITS, bits, "Bitrate", " bits");
+    can_play &= check_param(params, PCM_PARAM_SAMPLE_BITS, bits, "Bitwidth", " bits");
     can_play &= check_param(params, PCM_PARAM_PERIOD_SIZE, config->period_size, "Period size", " frames");
     can_play &= check_param(params, PCM_PARAM_PERIODS, config->period_count, "Period count", " periods");
 
