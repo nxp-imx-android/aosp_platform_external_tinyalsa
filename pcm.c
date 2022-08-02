@@ -257,7 +257,7 @@ struct pcm {
     int prepared:1;
     int underruns;
     unsigned int buffer_size;
-    unsigned int boundary;
+    unsigned long boundary;
     char error[PCM_ERROR_MAX];
     struct pcm_config config;
     struct snd_pcm_mmap_status *mmap_status;
@@ -465,7 +465,7 @@ static int pcm_mmap_transfer_areas(struct pcm *pcm, char *buf,
 int pcm_get_htimestamp(struct pcm *pcm, unsigned int *avail,
                        struct timespec *tstamp)
 {
-    int frames;
+    snd_pcm_sframes_t frames;
     int rc;
     snd_pcm_uframes_t hw_ptr;
 
@@ -488,11 +488,12 @@ int pcm_get_htimestamp(struct pcm *pcm, unsigned int *avail,
     if (pcm->flags & PCM_IN)
         frames = hw_ptr - pcm->mmap_control->appl_ptr;
     else
-        frames = hw_ptr + pcm->buffer_size - pcm->mmap_control->appl_ptr;
+        frames = hw_ptr + (snd_pcm_uframes_t) pcm->buffer_size -
+                pcm->mmap_control->appl_ptr;
 
     if (frames < 0)
         frames += pcm->boundary;
-    else if (frames > (int)pcm->boundary)
+    else if (frames >= (snd_pcm_sframes_t) pcm->boundary)
         frames -= pcm->boundary;
 
     *avail = (unsigned int)frames;
@@ -1029,15 +1030,12 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
     sparams.xfer_align = config->period_size / 2; /* needed for old kernels */
     sparams.silence_threshold = config->silence_threshold;
     sparams.silence_size = config->silence_size;
-    pcm->boundary = sparams.boundary = pcm->buffer_size;
-
-    while (pcm->boundary * 2 <= INT_MAX - pcm->buffer_size)
-        pcm->boundary *= 2;
 
     if (pcm->ops->ioctl(pcm->data, SNDRV_PCM_IOCTL_SW_PARAMS, &sparams)) {
         oops(&bad_pcm, errno, "cannot set sw params");
         goto fail;
     }
+    pcm->boundary = sparams.boundary;
 
     rc = pcm_hw_mmap_status(pcm);
     if (rc < 0) {
@@ -1114,45 +1112,48 @@ int pcm_stop(struct pcm *pcm)
     return 0;
 }
 
-static inline int pcm_mmap_playback_avail(struct pcm *pcm)
+static inline long pcm_mmap_playback_avail(struct pcm *pcm)
 {
-    int avail;
+    long avail = pcm->mmap_status->hw_ptr + (unsigned long) pcm->buffer_size -
+            pcm->mmap_control->appl_ptr;
 
-    avail = pcm->mmap_status->hw_ptr + pcm->buffer_size - pcm->mmap_control->appl_ptr;
-
-    if (avail < 0)
+    if (avail < 0) {
         avail += pcm->boundary;
-    else if (avail > (int)pcm->boundary)
+    } else if ((unsigned long) avail >= pcm->boundary) {
         avail -= pcm->boundary;
+    }
 
     return avail;
 }
 
-static inline int pcm_mmap_capture_avail(struct pcm *pcm)
+static inline long pcm_mmap_capture_avail(struct pcm *pcm)
 {
-    int avail = pcm->mmap_status->hw_ptr - pcm->mmap_control->appl_ptr;
-    if (avail < 0)
+    long avail = pcm->mmap_status->hw_ptr - pcm->mmap_control->appl_ptr;
+    if (avail < 0) {
         avail += pcm->boundary;
+    }
     return avail;
 }
 
 int pcm_mmap_avail(struct pcm *pcm)
 {
     pcm_sync_ptr(pcm, SNDRV_PCM_SYNC_PTR_HWSYNC);
-    if (pcm->flags & PCM_IN)
-        return pcm_mmap_capture_avail(pcm);
-    else
-        return pcm_mmap_playback_avail(pcm);
+    if (pcm->flags & PCM_IN) {
+        return (int) pcm_mmap_capture_avail(pcm);
+    } else {
+        return (int) pcm_mmap_playback_avail(pcm);
+    }
 }
 
 static void pcm_mmap_appl_forward(struct pcm *pcm, int frames)
 {
-    unsigned int appl_ptr = pcm->mmap_control->appl_ptr;
+    unsigned long appl_ptr = pcm->mmap_control->appl_ptr;
     appl_ptr += frames;
 
     /* check for boundary wrap */
-    if (appl_ptr > pcm->boundary)
+    if (appl_ptr >= pcm->boundary) {
          appl_ptr -= pcm->boundary;
+    }
     pcm->mmap_control->appl_ptr = appl_ptr;
 }
 
