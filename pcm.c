@@ -26,6 +26,7 @@
 ** DAMAGE.
 */
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -253,8 +254,8 @@ static void param_init(struct snd_pcm_hw_params *p)
 struct pcm {
     int fd;
     unsigned int flags;
-    int running:1;
-    int prepared:1;
+    bool running:1;
+    bool prepared:1;
     int underruns;
     unsigned int buffer_size;
     unsigned long boundary;
@@ -550,12 +551,12 @@ int pcm_write(struct pcm *pcm, const void *data, unsigned int count)
                 return prepare_error;
             if (pcm->ops->ioctl(pcm->data, SNDRV_PCM_IOCTL_WRITEI_FRAMES, &x))
                 return oops(pcm, errno, "cannot write initial data");
-            pcm->running = 1;
+            pcm->running = true;
             return 0;
         }
         if (pcm->ops->ioctl(pcm->data, SNDRV_PCM_IOCTL_WRITEI_FRAMES, &x)) {
-            pcm->prepared = 0;
-            pcm->running = 0;
+            pcm->prepared = false;
+            pcm->running = false;
             if (errno == EPIPE) {
                 /* we failed to make our window -- try to restart if we are
                  * allowed to do so.  Otherwise, simply allow the EPIPE error to
@@ -590,8 +591,8 @@ int pcm_read(struct pcm *pcm, void *data, unsigned int count)
             }
         }
         if (pcm->ops->ioctl(pcm->data, SNDRV_PCM_IOCTL_READI_FRAMES, &x)) {
-            pcm->prepared = 0;
-            pcm->running = 0;
+            pcm->prepared = false;
+            pcm->running = false;
             if (errno == EPIPE) {
                     /* we failed to make our window -- try to restart */
                 pcm->underruns++;
@@ -892,8 +893,8 @@ int pcm_close(struct pcm *pcm)
     if (pcm->snd_node)
         snd_utils_put_dev_node(pcm->snd_node);
 
-    pcm->prepared = 0;
-    pcm->running = 0;
+    pcm->prepared = false;
+    pcm->running = false;
     pcm->buffer_size = 0;
     pcm->fd = -1;
     free(pcm);
@@ -1082,7 +1083,7 @@ int pcm_prepare(struct pcm *pcm)
     if (pcm->ops->ioctl(pcm->data, SNDRV_PCM_IOCTL_PREPARE) < 0)
         return oops(pcm, errno, "cannot prepare channel");
 
-    pcm->prepared = 1;
+    pcm->prepared = true;
     return 0;
 }
 
@@ -1098,7 +1099,7 @@ int pcm_start(struct pcm *pcm)
     if (pcm->ops->ioctl(pcm->data, SNDRV_PCM_IOCTL_START) < 0)
         return oops(pcm, errno, "cannot start channel");
 
-    pcm->running = 1;
+    pcm->running = true;
     return 0;
 }
 
@@ -1107,8 +1108,8 @@ int pcm_stop(struct pcm *pcm)
     if (pcm->ops->ioctl(pcm->data, SNDRV_PCM_IOCTL_DROP) < 0)
         return oops(pcm, errno, "cannot stop channel");
 
-    pcm->prepared = 0;
-    pcm->running = 0;
+    pcm->prepared = false;
+    pcm->running = false;
     return 0;
 }
 
@@ -1314,8 +1315,8 @@ int pcm_mmap_transfer(struct pcm *pcm, const void *buffer, unsigned int bytes)
 
                 err = pcm_wait(pcm, time);
                 if (err < 0) {
-                    pcm->prepared = 0;
-                    pcm->running = 0;
+                    pcm->prepared = false;
+                    pcm->running = false;
                     oops(pcm, errno, "wait error: hw 0x%x app 0x%x avail 0x%x\n",
                         (unsigned int)pcm->mmap_status->hw_ptr,
                         (unsigned int)pcm->mmap_control->appl_ptr,
